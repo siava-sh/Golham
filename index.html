@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title> رادیو گُل هام </title>
+
+  <!-- Font  -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;700&family=VT323&display=swap" rel="stylesheet">
+  <!--SEO-->
+  <meta name="description" content="رادیو گلها – مجموعه کامل گلهای تازه، برگ سبز، صحرایی و رنگارنگ. پخش آنلاین، جستجو و دانلود رایگان برنامه‌ها با کیفیت بالا.">
+  <meta property="og:title" content="رادیو گلها – پخش و دانلود گلها">
+  <meta property="og:description" content="گلهای تازه و خاطره‌انگیز – آنلاین گوش کن و دانلود کن">
+  
+
+  <link rel="icon" type="image/png" sizes="32x32" href="./assets/images/damavand.jpg">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <div class="radio-container">
+
+    <header class="radio-header">
+      <h1> Radio Golham</h1>
+      <p class="subtitle">
+      Full GolHam Archive . Stream And Download 
+      </p>
+    </header>
+
+    <section class="player-section">
+      <div class="now-playing">  : در حال پخش </div>
+
+      <div class="controls">
+        <button id="prev-btn"><i class="fas fa-backward"></i></button>   <!-- left -->
+        <button id="play-pause-btn"><i class="fas fa-play"></i></button>
+        <button id="next-btn"><i class="fas fa-forward"></i></button>    <!-- right -->
+      </div>
+      <div class="progress-container">
+        <span id="current-time">00:00</span>
+        <div class="progress-bar">
+          <div id="progress-fill" class="progress-fill"></div>
+        </div>
+        <span id="duration">00:00</span>
+      </div>
+
+      <audio id="audio-player" preload="metadata"></audio>
+    </section>
+      <div class="credit"> Made With ❤️ by  &nbsp;  <a href="https://zaya.io/yeklink/siavash"> Siavash Hakim </a> </div>
+    <section class="search-section">
+      <input type="text" id="search-input" placeholder="جستجو در برنامه‌ها..." />
+    </section>
+
+    <section class="programs-list" id="programs-list">
+      <p>در حال بارگذاری برنامه‌ها...</p>
+
+      <button id="show-more-btn" class="show-more"> Show More </button>
+    </section>
+    
+
+  </div>
+
+  <script src="js/main.js"></script>
+</body>
+</html>
