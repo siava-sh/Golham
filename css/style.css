@@ -84,7 +84,7 @@ h1 {
   content: "";
   position: absolute;
   inset: 0;
-  background-image: url("../assets/images/golha03.gif");
+  background-image: url("../assets/images/golha05.gif");
   background-size: cover;
   background-position: center;
   filter: brightness(0.8)  contrast(1.5);
