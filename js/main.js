@@ -1,104 +1,87 @@
 document.addEventListener("DOMContentLoaded", () => {
 
-  /* ──────────────────────────────
+  /* ─────────────────────────────────────────────
      CONFIG
-  ────────────────────────────── */
+  ───────────────────────────────────────────── */
 
   const CONFIG = {
     BATCH_SIZE: 13,
-    JSON_URL: "programs.json"
+    JSON_URL: "programs.json",
+    STORAGE_KEY: "golha_player_state"
   };
 
-  const SELECTORS = {
-    programsList: "#programs-list",
-    searchInput: "#search-input",
-    audio: "#audio-player",
-    playPauseBtn: "#play-pause-btn",
-    prevBtn: "#prev-btn",
-    nextBtn: "#next-btn",
-    nowPlaying: ".now-playing",
-    progressFill: "#progress-fill",
-    currentTime: "#current-time",
-    duration: "#duration",
-    showMoreBtn: "#show-more-btn",
-    progressBar: ".progress-bar"
-  };
-
-  /* ──────────────────────────────
+  /* ─────────────────────────────────────────────
      DOM CACHE
-  ────────────────────────────── */
+  ───────────────────────────────────────────── */
 
-  const $ = {};
-  Object.keys(SELECTORS).forEach(key => {
-    $[key] = document.querySelector(SELECTORS[key]);
-  });
+  const $ = {
+    programsList: document.querySelector("#programs-list"),
+    searchInput: document.querySelector("#search-input"),
+    audio: document.querySelector("#audio-player"),
+    playPauseBtn: document.querySelector("#play-pause-btn"),
+    prevBtn: document.querySelector("#prev-btn"),
+    nextBtn: document.querySelector("#next-btn"),
+    nowPlaying: document.querySelector(".now-playing"),
+    progressFill: document.querySelector("#progress-fill"),
+    currentTime: document.querySelector("#current-time"),
+    duration: document.querySelector("#duration"),
+    showMoreBtn: document.querySelector("#show-more-btn"),
+    progressBar: document.querySelector(".progress-bar")
+  };
 
-  /* ──────────────────────────────
+  /* ─────────────────────────────────────────────
      STATE
-  ────────────────────────────── */
+  ───────────────────────────────────────────── */
 
   const State = {
     allPrograms: [],
     currentDataset: [],
     visibleCount: 0,
     currentIndex: -1,
+    currentTrackUrl: null,
     isPlaying: false
   };
 
-  /* ──────────────────────────────
-     UTILS
-  ────────────────────────────── */
+  /* ─────────────────────────────────────────────
+     UTILITIES
+  ───────────────────────────────────────────── */
 
   const Utils = {
 
-    shuffle(array) {
-      const copy = [...array];
-      for (let i = copy.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [copy[i], copy[j]] = [copy[j], copy[i]];
-      }
-      return copy;
+    normalize(text = "") {
+      const persianDigits = "۰۱۲۳۴۵۶۷۸۹";
+      const englishDigits = "0123456789";
+
+      let result = text
+        .replace(/ي/g, "ی")
+        .replace(/ك/g, "ک")
+        .replace(/[۰-۹]/g, d => englishDigits[persianDigits.indexOf(d)]);
+
+      return result.toLowerCase().trim();
     },
 
     formatTime(seconds) {
       if (!seconds || isNaN(seconds)) return "00:00";
-      const min = Math.floor(seconds / 60);
-      const sec = Math.floor(seconds % 60);
-      return `${min.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
-    },
-
-    normalize(text) {
-      if (!text) return "";
-
-      const persianDigits = "۰۱۲۳۴۵۶۷۸۹";
-      const englishDigits = "0123456789";
-
-      let normalized = text
-        .replace(/ي/g, "ی")
-        .replace(/ك/g, "ک");
-
-      // convert persian digits → english
-      normalized = normalized.replace(/[۰-۹]/g, d =>
-        englishDigits[persianDigits.indexOf(d)]
-      );
-
-      return normalized.toLowerCase().trim();
+      const m = Math.floor(seconds / 60);
+      const s = Math.floor(seconds % 60);
+      return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
     }
 
   };
 
-  /* ──────────────────────────────
-     DATA MODULE
-  ────────────────────────────── */
+  /* ─────────────────────────────────────────────
+     DATA
+  ───────────────────────────────────────────── */
 
   const Data = {
 
     async load() {
       const res = await fetch(CONFIG.JSON_URL);
       if (!res.ok) throw new Error("JSON load failed");
+
       const programs = await res.json();
 
-      // Precompute normalized search string (performance optimization)
+      // Precompute searchable text (performance boost)
       programs.forEach(p => {
         p._search = Utils.normalize(
           `${p["Program Name"] || ""} ${p["Source"] || ""}`
@@ -106,34 +89,35 @@ document.addEventListener("DOMContentLoaded", () => {
       });
 
       State.allPrograms = programs;
-      State.currentDataset = Utils.shuffle(programs);
+      State.currentDataset = programs;
     },
 
     search(term) {
-      const normalizedTerm = Utils.normalize(term);
+      const normalized = Utils.normalize(term);
 
-      if (!normalizedTerm) {
-        State.currentDataset = Utils.shuffle(State.allPrograms);
+      if (!normalized) {
+        State.currentDataset = State.allPrograms;
       } else {
         State.currentDataset = State.allPrograms.filter(p =>
-          p._search.includes(normalizedTerm)
+          p._search.includes(normalized)
         );
       }
 
       State.visibleCount = 0;
+      Render.reset();
+      Render.appendBatch();
     }
 
   };
 
-  /* ──────────────────────────────
-     RENDER MODULE
-  ────────────────────────────── */
+  /* ─────────────────────────────────────────────
+     RENDER
+  ───────────────────────────────────────────── */
 
   const Render = {
 
-    resetList() {
+    reset() {
       $.programsList.innerHTML = "";
-      State.visibleCount = 0;
     },
 
     appendBatch() {
@@ -173,7 +157,7 @@ document.addEventListener("DOMContentLoaded", () => {
       $.programsList.appendChild(fragment);
       State.visibleCount = end;
 
-      // show more visibility
+      // show more logic (ONLY here)
       if ($.showMoreBtn) {
         $.showMoreBtn.style.display =
           State.visibleCount >= State.currentDataset.length
@@ -184,9 +168,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   };
 
-  /* ──────────────────────────────
-     PLAYER MODULE
-  ────────────────────────────── */
+  /* ─────────────────────────────────────────────
+     PLAYER
+  ───────────────────────────────────────────── */
 
   const Player = {
 
@@ -200,11 +184,18 @@ document.addEventListener("DOMContentLoaded", () => {
       $.nowPlaying.textContent =
         `در حال پخش : ${program["Program Name"] || "بدون نام"}`;
 
-      document.querySelectorAll(".program-item").forEach((el, i) => {
-        el.classList.toggle("playing", i === index);
-      });
+      document.querySelectorAll(".program-item").forEach(el =>
+        el.classList.remove("playing")
+      );
+
+      const currentItem = document.querySelector(
+        `.program-item[data-index="${index}"]`
+      );
+
+      if (currentItem) currentItem.classList.add("playing");
 
       State.currentIndex = index;
+      State.currentTrackUrl = program["MP3 URL"];
 
       if (auto) {
         $.audio.play().catch(() => {});
@@ -218,25 +209,85 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       $.audio.paused ? $.audio.play() : $.audio.pause();
+    },
+
+    next() {
+      if (State.currentIndex < State.currentDataset.length - 1) {
+        this.play(State.currentIndex + 1);
+      } else {
+        this.play(0);
+      }
+    },
+
+    prev() {
+      if (State.currentIndex > 0) {
+        this.play(State.currentIndex - 1);
+      } else {
+        this.play(State.currentDataset.length - 1);
+      }
     }
 
   };
 
-  /* ──────────────────────────────
+  /* ─────────────────────────────────────────────
+     PERSISTENCE (STABLE RESTORE)
+  ───────────────────────────────────────────── */
+
+  const Persistence = {
+
+    save() {
+      if (!State.currentTrackUrl) return;
+
+      const data = {
+        trackUrl: State.currentTrackUrl,
+        time: $.audio.currentTime,
+        playing: State.isPlaying
+      };
+
+      localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(data));
+    },
+
+    restore() {
+      const raw = localStorage.getItem(CONFIG.STORAGE_KEY);
+      if (!raw) return;
+
+      const saved = JSON.parse(raw);
+      if (!saved.trackUrl) return;
+
+      const index = State.currentDataset.findIndex(
+        p => p["MP3 URL"] === saved.trackUrl
+      );
+
+      if (index === -1) return;
+
+      // Ensure item is visible
+      while (State.visibleCount <= index) {
+        Render.appendBatch();
+      }
+
+      Player.play(index, false);
+
+      $.audio.addEventListener("loadedmetadata", () => {
+        $.audio.currentTime = saved.time || 0;
+        if (saved.playing) $.audio.play().catch(() => {});
+      }, { once: true });
+    }
+
+  };
+
+  /* ─────────────────────────────────────────────
      EVENTS
-  ────────────────────────────── */
+  ───────────────────────────────────────────── */
 
   function setupEvents() {
 
-    $.searchInput.addEventListener("input", e => {
-      Data.search(e.target.value);
-      Render.resetList();
-      Render.appendBatch();
-    });
+    $.searchInput.addEventListener("input", e =>
+      Data.search(e.target.value)
+    );
 
-    $.showMoreBtn?.addEventListener("click", () => {
-      Render.appendBatch();
-    });
+    $.showMoreBtn?.addEventListener("click", () =>
+      Render.appendBatch()
+    );
 
     $.programsList.addEventListener("click", e => {
       const btn = e.target.closest(".play-this");
@@ -246,7 +297,28 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!isNaN(index)) Player.play(index);
     });
 
-    $.playPauseBtn.addEventListener("click", () => Player.toggle());
+    $.playPauseBtn.addEventListener("click", () =>
+      Player.toggle()
+    );
+
+    $.nextBtn.addEventListener("click", () =>
+      Player.next()
+    );
+
+    $.prevBtn.addEventListener("click", () =>
+      Player.prev()
+    );
+
+    $.audio.addEventListener("play", () => {
+      State.isPlaying = true;
+      $.playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
+    });
+
+    $.audio.addEventListener("pause", () => {
+      State.isPlaying = false;
+      $.playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+      Persistence.save();
+    });
 
     $.audio.addEventListener("timeupdate", () => {
       if (!$.audio.duration) return;
@@ -269,17 +341,21 @@ document.addEventListener("DOMContentLoaded", () => {
       $.audio.currentTime = pos * $.audio.duration;
     });
 
+    window.addEventListener("beforeunload", () =>
+      Persistence.save()
+    );
   }
 
-  /* ──────────────────────────────
+  /* ─────────────────────────────────────────────
      INIT
-  ────────────────────────────── */
+  ───────────────────────────────────────────── */
 
   async function init() {
     try {
       await Data.load();
-      Render.appendBatch();   // ⚡ Only first 13 render
+      Render.appendBatch();        // ⚡ first 13 only
       setupEvents();
+      Persistence.restore();       // stable restore
     } catch (err) {
       $.programsList.innerHTML =
         `<p style="color:red;">خطا: ${err.message}</p>`;
