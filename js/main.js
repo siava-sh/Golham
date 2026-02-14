@@ -1,147 +1,130 @@
 document.addEventListener("DOMContentLoaded", () => {
-  // ── Constants ──────────────────────────────────────────────────────
-  const BATCH_SIZE = 13;
+  // ── Selectors & elements ───────────────────────────────────────────
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => document.querySelectorAll(sel);
 
-  const SELECTORS = {
-    programsList: "#programs-list",
-    searchInput: "#search-input",
-    audio: "#audio-player",
-    playPauseBtn: "#play-pause-btn",
-    prevBtn: "#prev-btn",
-    nextBtn: "#next-btn",
-    nowPlaying: ".now-playing",
-    progressFill: "#progress-fill",
-    currentTime: "#current-time",
-    duration: "#duration",
-    showMoreBtn: "#show-more-btn",
-    progressBar: ".progress-bar"
-  };
-
-  // ── DOM Elements ───────────────────────────────────────────────────
-  const el = {
-    programsList: document.querySelector(SELECTORS.programsList),
-    searchInput: document.querySelector(SELECTORS.searchInput),
-    audio: document.querySelector(SELECTORS.audio),
-    playPauseBtn: document.querySelector(SELECTORS.playPauseBtn),
-    prevBtn: document.querySelector(SELECTORS.prevBtn),
-    nextBtn: document.querySelector(SELECTORS.nextBtn),
-    nowPlaying: document.querySelector(SELECTORS.nowPlaying),
-    progressFill: document.querySelector(SELECTORS.progressFill),
-    currentTime: document.querySelector(SELECTORS.currentTime),
-    duration: document.querySelector(SELECTORS.duration),
-    showMoreBtn: document.querySelector(SELECTORS.showMoreBtn),
-    progressBar: document.querySelector(SELECTORS.progressBar)
+  const els = {
+    list: $("#programs-list"),
+    search: $("#search-input"),
+    audio: $("#audio-player"),
+    playPause: $("#play-pause-btn"),
+    prev: $("#prev-btn"),
+    next: $("#next-btn"),
+    nowPlaying: $(".now-playing"),
+    progressFill: $("#progress-fill"),
+    currentTime: $("#current-time"),
+    duration: $("#duration"),
+    showMore: $("#show-more-btn"),
+    progressBar: $(".progress-bar")
   };
 
   // ── State ──────────────────────────────────────────────────────────
   let allPrograms = [];
-  let shuffledPrograms = [];
-  let visibleCount = 0;
-  let currentIndex = -1;
+  let currentBatchIndex = 0;
+  let currentPlayingIndex = -1;
   let isPlaying = false;
+  const BATCH_SIZE = 13;
 
   // ── Helpers ────────────────────────────────────────────────────────
-  const formatTime = (seconds) => {
-    if (!seconds || isNaN(seconds)) return "00:00";
-    const min = Math.floor(seconds / 60);
-    const sec = Math.floor(seconds % 60);
-    return `${min.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
+  const pad = (n) => n.toString().padStart(2, "0");
+  const formatTime = (s) => {
+    if (!s || isNaN(s)) return "00:00";
+    return `${pad(Math.floor(s / 60))}:${pad(Math.floor(s % 60))}`;
   };
 
-  const shuffle = (array) => {
-    const copy = [...array];
-    for (let i = copy.length - 1; i > 0; i--) {
+  const shuffle = (arr) => {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
-      [copy[i], copy[j]] = [copy[j], copy[i]];
+      [a[i], a[j]] = [a[j], a[i]];
     }
-    return copy;
+    return a;
   };
 
-  // Persian ↔ English numbers
-  const normalizeNumber = (str) => {
-    return str
-      .replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d))
-      .replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d));
-  };
+  const toEnDigits = (str) =>
+    str.replace(/[۰-۹]/g, (d) => "۰۱۲۳۴۵۶۷۸۹".indexOf(d));
 
   // ── Player ─────────────────────────────────────────────────────────
   const setupPlayer = () => {
-    el.audio.addEventListener("timeupdate", () => {
-      if (!el.audio.duration) return;
-      const progress = (el.audio.currentTime / el.audio.duration) * 100;
-      el.progressFill.style.width = `${progress}%`;
-      el.currentTime.textContent = formatTime(el.audio.currentTime);
-      el.duration.textContent = formatTime(el.audio.duration);
+    els.audio.addEventListener("timeupdate", () => {
+      if (!els.audio.duration) return;
+      const pct = (els.audio.currentTime / els.audio.duration) * 100;
+      els.progressFill.style.width = pct + "%";
+      els.currentTime.textContent = formatTime(els.audio.currentTime);
+      els.duration.textContent = formatTime(els.audio.duration);
     });
 
-    el.audio.addEventListener("loadedmetadata", () => {
-      el.duration.textContent = formatTime(el.audio.duration);
+    els.audio.addEventListener("loadedmetadata", () => {
+      els.duration.textContent = formatTime(els.audio.duration);
     });
 
-    el.audio.addEventListener("play", () => {
-      el.playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
+    els.audio.addEventListener("play", () => {
+      els.playPause.innerHTML = '<i class="fas fa-pause"></i>';
       isPlaying = true;
     });
 
-    el.audio.addEventListener("pause", () => {
-      el.playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+    els.audio.addEventListener("pause", () => {
+      els.playPause.innerHTML = '<i class="fas fa-play"></i>';
       isPlaying = false;
     });
 
-    el.audio.addEventListener("ended", playRandomNext);
+    els.audio.addEventListener("ended", playRandomNext);
 
-    el.progressBar.addEventListener("click", (e) => {
-      if (!el.audio.duration) return;
-      const rect = e.currentTarget.getBoundingClientRect();
-      const pos = (e.clientX - rect.left) / rect.width;
-      el.audio.currentTime = pos * el.audio.duration;
+    els.progressBar.addEventListener("click", (e) => {
+      if (!els.audio.duration) return;
+      const rect = els.progressBar.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      els.audio.currentTime = (x / rect.width) * els.audio.duration;
     });
   };
 
-  const playTrack = (program, index, autoPlay = true) => {
-    el.audio.src = program["MP3 URL"];
-    el.audio.load();
+  const play = (program, index, auto = true) => {
+    els.audio.src = program["MP3 URL"];
+    els.audio.load();
 
-    el.nowPlaying.textContent = `در حال پخش: ${program["Program Name"] || "بدون نام"}`;
+    els.nowPlaying.textContent = `در حال پخش: ${program["Program Name"] || "بدون نام"}`;
 
-    document.querySelectorAll(".program-item").forEach((item, i) => {
-      item.classList.toggle("playing", i === index);
-    });
+    $$(".program-item").forEach((el, i) => el.classList.toggle("playing", i === index));
 
-    currentIndex = index;
+    currentPlayingIndex = index;
 
-    if (autoPlay) {
-      el.audio.play().catch(err => {
-        console.error("Playback failed:", err);
-        el.nowPlaying.textContent += " (خطا)";
+    if (auto) {
+      els.audio.play().catch((e) => {
+        console.warn("Play prevented:", e);
+        els.nowPlaying.textContent += " (خطا)";
       });
     }
   };
 
-  const togglePlayPause = () => {
-    if (currentIndex === -1) {
-      playTrack(shuffledPrograms[0], 0);
+  const togglePlay = () => {
+    if (currentPlayingIndex === -1) {
+      play(shuffledPrograms[0], 0);
       return;
     }
-    if (el.audio.paused || el.audio.ended) {
-      el.audio.play();
+    if (els.audio.paused || els.audio.ended) {
+      els.audio.play();
     } else {
-      el.audio.pause();
+      els.audio.pause();
     }
   };
 
   const playRandomNext = () => {
-    if (shuffledPrograms.length <= 1) return;
-    let rnd = Math.floor(Math.random() * shuffledPrograms.length);
-    while (rnd === currentIndex) rnd = Math.floor(Math.random() * shuffledPrograms.length);
-    playTrack(shuffledPrograms[rnd], rnd);
+    if (shuffledPrograms.length < 2) return;
+    let idx = Math.floor(Math.random() * shuffledPrograms.length);
+    while (idx === currentPlayingIndex) {
+      idx = Math.floor(Math.random() * shuffledPrograms.length);
+    }
+    play(shuffledPrograms[idx], idx);
   };
 
-  // ── List & Show More ───────────────────────────────────────────────
-  const loadInitialBatch = () => {
+  // ── List ───────────────────────────────────────────────────────────
+  let shuffledPrograms = [];
+
+  const loadInitial = (programs) => {
+    allPrograms = programs;
     shuffledPrograms = shuffle(allPrograms);
     visibleCount = 0;
-    el.programsList.innerHTML = "";
+    els.programsList.innerHTML = "";
     appendBatch();
   };
 
@@ -150,85 +133,87 @@ document.addEventListener("DOMContentLoaded", () => {
     const end = Math.min(start + BATCH_SIZE, shuffledPrograms.length);
     const batch = shuffledPrograms.slice(start, end);
 
-    let html = "";
-    batch.forEach((program, batchIndex) => {
-      const index = visibleCount + batchIndex;
-      html += `
-        <div class="program-item" data-index="${index}">
-          <div class="program-name">${program["Program Name"] || "بدون نام"}</div>
-          <div class="action-buttons">
-            <button class="minimal-btn play-this" data-index="${index}" title="پخش">
-              <i class="fas fa-play"></i>
-            </button>
-            <a href="${program["MP3 URL"]}" download class="minimal-btn" title="دانلود">
-              <i class="fas fa-download"></i>
-            </a>
-            <a href="${program["Source"]}" target="_blank" class="minimal-btn" title="منبع">
-              <i class="fas fa-external-link-alt"></i>
-            </a>
-          </div>
+    const fragment = document.createDocumentFragment();
+
+    batch.forEach((p, batchIdx) => {
+      const globalIdx = visibleCount + batchIdx;
+      const item = document.createElement("div");
+      item.className = "program-item";
+      item.dataset.index = globalIdx;
+      item.innerHTML = `
+        <div class="program-name">${p["Program Name"] || "بدون نام"}</div>
+        <div class="action-buttons">
+          <button class="minimal-btn play-this" data-index="${globalIdx}" title="پخش">
+            <i class="fas fa-play"></i>
+          </button>
+          <a href="${p["MP3 URL"]}" download class="minimal-btn" title="دانلود">
+            <i class="fas fa-download"></i>
+          </a>
+          <a href="${p["Source"]}" target="_blank" class="minimal-btn" title="منبع">
+            <i class="fas fa-external-link-alt"></i>
+          </a>
         </div>
       `;
+      fragment.appendChild(item);
     });
 
-    el.programsList.insertAdjacentHTML("beforeend", html);
+    els.programsList.appendChild(fragment);
     visibleCount = end;
 
-    // Show More button logic - very explicit
     if (el.showMoreBtn) {
-      const hasMore = visibleCount < shuffledPrograms.length;
-      el.showMoreBtn.style.display = hasMore ? "block" : "none";
-      console.log(`Show More → ${hasMore ? "visible" : "hidden"} | visible: ${visibleCount} / total: ${shuffledPrograms.length}`);
+      el.showMoreBtn.style.display =
+        visibleCount < shuffledPrograms.length ? "block" : "none";
     }
   };
 
   // ── Search ─────────────────────────────────────────────────────────
+  let searchTimeout;
   const handleSearch = (e) => {
-    let term = e.target.value.trim().toLowerCase();
-    if (!term) {
-      loadInitialBatch();
-      return;
-    }
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+      const term = normalizeNumber(e.target.value.trim().toLowerCase());
+      if (!term) {
+        loadInitial(allPrograms);
+        return;
+      }
 
-    // Normalize Persian/Arabic digits → English
-    term = normalizeNumber(term);
+      const filtered = allPrograms.filter((p) => {
+        let name = (p["Program Name"] || "").toLowerCase();
+        name = normalizeNumber(name.replace(/ي/g, "ی").replace(/ك/g, "ک"));
+        return name.includes(term);
+      });
 
-    const filtered = allPrograms.filter(p => {
-      let name = (p["Program Name"] || "").toLowerCase();
-      name = normalizeNumber(name.replace(/ي/g, 'ی').replace(/ك/g, 'ک'));
-      return name.includes(term);
-    });
+      shuffledPrograms = shuffle(filtered);
+      visibleCount = 0;
+      els.programsList.innerHTML = "";
+      appendBatch();
 
-    shuffledPrograms = shuffle(filtered);
-    visibleCount = 0;
-    el.programsList.innerHTML = "";
-    appendBatch();
-
-    if (el.showMoreBtn) el.showMoreBtn.style.display = "none";
+      if (el.showMoreBtn) el.showMoreBtn.style.display = "none";
+    }, 280);
   };
 
   // ── Events ─────────────────────────────────────────────────────────
-  const setupEvents = () => {
-    el.playPauseBtn?.addEventListener("click", togglePlayPause);
-    el.nextBtn?.addEventListener("click", playRandomNext);
-    el.prevBtn?.addEventListener("click", () => {
+  const bindEvents = () => {
+    el.playPause?.addEventListener("click", togglePlay);
+    el.next?.addEventListener("click", playRandomNext);
+    el.prev?.addEventListener("click", () => {
       const len = shuffledPrograms.length;
       if (len === 0) return;
-      const newIdx = currentIndex > 0 ? currentIndex - 1 : len - 1;
-      playTrack(shuffledPrograms[newIdx], newIdx);
+      const idx = currentPlayingIndex > 0 ? currentPlayingIndex - 1 : len - 1;
+      play(shuffledPrograms[idx], idx);
     });
 
     el.programsList?.addEventListener("click", (e) => {
       const btn = e.target.closest(".play-this");
       if (btn) {
-        const idx = parseInt(btn.dataset.index, 10);
-        if (!isNaN(idx)) playTrack(shuffledPrograms[idx], idx);
+        const i = parseInt(btn.dataset.index, 10);
+        if (!isNaN(i)) play(shuffledPrograms[i], i);
         return;
       }
       const item = e.target.closest(".program-item");
       if (item) {
-        const idx = parseInt(item.dataset.index, 10);
-        if (!isNaN(idx)) playTrack(shuffledPrograms[idx], idx);
+        const i = parseInt(item.dataset.index, 10);
+        if (!isNaN(i)) play(shuffledPrograms[i], i);
       }
     });
 
@@ -238,15 +223,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ── Start ──────────────────────────────────────────────────────────
   fetch("programs.json")
-    .then(res => res.ok ? res.json() : Promise.reject("JSON load failed"))
-    .then(programs => {
-      allPrograms = programs;
+    .then((r) => (r.ok ? r.json() : Promise.reject("Load failed")))
+    .then((programs) => {
+      loadInitial(programs);
+      bindEvents();
       setupPlayer();
-      setupEvents();
-      loadInitialBatch();
     })
-    .catch(err => {
-      el.programsList.innerHTML = `<p style="color:#ff4444;">خطا: ${err}</p>`;
-      console.error(err);
+    .catch((err) => {
+      els.programsList.innerHTML = `<p style="color:#ff4444; text-align:center; padding:60px 0;">
+        خطا در بارگذاری: ${err}
+      </p>`;
     });
 });
