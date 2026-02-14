@@ -1,8 +1,6 @@
 document.addEventListener("DOMContentLoaded", () => {
 
-  /* ─────────────────────────────────────────────
-     CONFIG
-  ───────────────────────────────────────────── */
+  /* ───────────────────────── CONFIG ───────────────────────── */
 
   const CONFIG = {
     BATCH_SIZE: 13,
@@ -10,9 +8,7 @@ document.addEventListener("DOMContentLoaded", () => {
     STORAGE_KEY: "golha_player_state"
   };
 
-  /* ─────────────────────────────────────────────
-     DOM CACHE
-  ───────────────────────────────────────────── */
+  /* ───────────────────────── DOM CACHE ───────────────────────── */
 
   const $ = {
     programsList: document.querySelector("#programs-list"),
@@ -26,12 +22,11 @@ document.addEventListener("DOMContentLoaded", () => {
     currentTime: document.querySelector("#current-time"),
     duration: document.querySelector("#duration"),
     showMoreBtn: document.querySelector("#show-more-btn"),
-    progressBar: document.querySelector(".progress-bar")
+    progressBar: document.querySelector(".progress-bar"),
+    loadingMessage: document.querySelector("#loading-message")
   };
 
-  /* ─────────────────────────────────────────────
-     STATE
-  ───────────────────────────────────────────── */
+  /* ───────────────────────── STATE ───────────────────────── */
 
   const State = {
     allPrograms: [],
@@ -42,9 +37,7 @@ document.addEventListener("DOMContentLoaded", () => {
     isPlaying: false
   };
 
-  /* ─────────────────────────────────────────────
-     UTILITIES
-  ───────────────────────────────────────────── */
+  /* ───────────────────────── UTILS ───────────────────────── */
 
   const Utils = {
 
@@ -52,12 +45,14 @@ document.addEventListener("DOMContentLoaded", () => {
       const persianDigits = "۰۱۲۳۴۵۶۷۸۹";
       const englishDigits = "0123456789";
 
-      let result = text
+      return text
         .replace(/ي/g, "ی")
         .replace(/ك/g, "ک")
-        .replace(/[۰-۹]/g, d => englishDigits[persianDigits.indexOf(d)]);
-
-      return result.toLowerCase().trim();
+        .replace(/[۰-۹]/g, d => englishDigits[persianDigits.indexOf(d)])
+        .replace(/\u200c/g, " ")           // remove zero-width
+        .replace(/\s+/g, " ")              // collapse spaces
+        .toLowerCase()
+        .trim();
     },
 
     formatTime(seconds) {
@@ -69,9 +64,38 @@ document.addEventListener("DOMContentLoaded", () => {
 
   };
 
-  /* ─────────────────────────────────────────────
-     DATA
-  ───────────────────────────────────────────── */
+  /* ───────────────────────── LOADING ANIMATION ───────────────────────── */
+
+  const Loader = {
+
+    start(totalCount) {
+      let counter = 0;
+      let dots = 0;
+
+      this.interval = setInterval(() => {
+        counter += Math.ceil(totalCount / 50); // fast visual progress
+        if (counter > totalCount) counter = totalCount;
+
+        dots = (dots + 1) % 4;
+        const dotStr = ".".repeat(dots);
+
+        $.loadingMessage.textContent =
+          `در حال بارگذاری ${counter} برنامه${dotStr}`;
+
+        if (counter >= totalCount) {
+          clearInterval(this.interval);
+        }
+      }, 30);
+    },
+
+    stop() {
+      clearInterval(this.interval);
+      $.loadingMessage.style.display = "none";
+    }
+
+  };
+
+  /* ───────────────────────── DATA ───────────────────────── */
 
   const Data = {
 
@@ -81,7 +105,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const programs = await res.json();
 
-      // Precompute searchable text (performance boost)
+      Loader.start(programs.length);
+
+      // Precompute searchable field
       programs.forEach(p => {
         p._search = Utils.normalize(
           `${p["Program Name"] || ""} ${p["Source"] || ""}`
@@ -90,16 +116,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
       State.allPrograms = programs;
       State.currentDataset = programs;
+
+      Loader.stop();
     },
 
     search(term) {
       const normalized = Utils.normalize(term);
+      const tokens = normalized.split(" ").filter(Boolean);
 
-      if (!normalized) {
+      if (!tokens.length) {
         State.currentDataset = State.allPrograms;
       } else {
         State.currentDataset = State.allPrograms.filter(p =>
-          p._search.includes(normalized)
+          tokens.every(token => p._search.includes(token))
         );
       }
 
@@ -110,9 +139,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   };
 
-  /* ─────────────────────────────────────────────
-     RENDER
-  ───────────────────────────────────────────── */
+  /* ───────────────────────── RENDER ───────────────────────── */
 
   const Render = {
 
@@ -157,7 +184,6 @@ document.addEventListener("DOMContentLoaded", () => {
       $.programsList.appendChild(fragment);
       State.visibleCount = end;
 
-      // show more logic (ONLY here)
       if ($.showMoreBtn) {
         $.showMoreBtn.style.display =
           State.visibleCount >= State.currentDataset.length
@@ -168,9 +194,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   };
 
-  /* ─────────────────────────────────────────────
-     PLAYER
-  ───────────────────────────────────────────── */
+  /* ───────────────────────── PLAYER ───────────────────────── */
 
   const Player = {
 
@@ -197,9 +221,7 @@ document.addEventListener("DOMContentLoaded", () => {
       State.currentIndex = index;
       State.currentTrackUrl = program["MP3 URL"];
 
-      if (auto) {
-        $.audio.play().catch(() => {});
-      }
+      if (auto) $.audio.play().catch(() => {});
     },
 
     toggle() {
@@ -207,44 +229,42 @@ document.addEventListener("DOMContentLoaded", () => {
         this.play(0);
         return;
       }
-
       $.audio.paused ? $.audio.play() : $.audio.pause();
     },
 
     next() {
-      if (State.currentIndex < State.currentDataset.length - 1) {
-        this.play(State.currentIndex + 1);
-      } else {
-        this.play(0);
-      }
+      const next =
+        State.currentIndex < State.currentDataset.length - 1
+          ? State.currentIndex + 1
+          : 0;
+      this.play(next);
     },
 
     prev() {
-      if (State.currentIndex > 0) {
-        this.play(State.currentIndex - 1);
-      } else {
-        this.play(State.currentDataset.length - 1);
-      }
+      const prev =
+        State.currentIndex > 0
+          ? State.currentIndex - 1
+          : State.currentDataset.length - 1;
+      this.play(prev);
     }
 
   };
 
-  /* ─────────────────────────────────────────────
-     PERSISTENCE (STABLE RESTORE)
-  ───────────────────────────────────────────── */
+  /* ───────────────────────── PERSISTENCE ───────────────────────── */
 
   const Persistence = {
 
     save() {
       if (!State.currentTrackUrl) return;
 
-      const data = {
-        trackUrl: State.currentTrackUrl,
-        time: $.audio.currentTime,
-        playing: State.isPlaying
-      };
-
-      localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(data));
+      localStorage.setItem(
+        CONFIG.STORAGE_KEY,
+        JSON.stringify({
+          trackUrl: State.currentTrackUrl,
+          time: $.audio.currentTime,
+          playing: State.isPlaying
+        })
+      );
     },
 
     restore() {
@@ -252,7 +272,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!raw) return;
 
       const saved = JSON.parse(raw);
-      if (!saved.trackUrl) return;
 
       const index = State.currentDataset.findIndex(
         p => p["MP3 URL"] === saved.trackUrl
@@ -260,7 +279,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (index === -1) return;
 
-      // Ensure item is visible
       while (State.visibleCount <= index) {
         Render.appendBatch();
       }
@@ -275,9 +293,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   };
 
-  /* ─────────────────────────────────────────────
-     EVENTS
-  ───────────────────────────────────────────── */
+  /* ───────────────────────── EVENTS ───────────────────────── */
 
   function setupEvents() {
 
@@ -292,22 +308,13 @@ document.addEventListener("DOMContentLoaded", () => {
     $.programsList.addEventListener("click", e => {
       const btn = e.target.closest(".play-this");
       if (!btn) return;
-
       const index = parseInt(btn.dataset.index, 10);
       if (!isNaN(index)) Player.play(index);
     });
 
-    $.playPauseBtn.addEventListener("click", () =>
-      Player.toggle()
-    );
-
-    $.nextBtn.addEventListener("click", () =>
-      Player.next()
-    );
-
-    $.prevBtn.addEventListener("click", () =>
-      Player.prev()
-    );
+    $.playPauseBtn.addEventListener("click", () => Player.toggle());
+    $.nextBtn.addEventListener("click", () => Player.next());
+    $.prevBtn.addEventListener("click", () => Player.prev());
 
     $.audio.addEventListener("play", () => {
       State.isPlaying = true;
@@ -322,20 +329,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     $.audio.addEventListener("timeupdate", () => {
       if (!$.audio.duration) return;
-
       const progress =
         ($.audio.currentTime / $.audio.duration) * 100;
-
       $.progressFill.style.width = `${progress}%`;
-      $.currentTime.textContent =
-        Utils.formatTime($.audio.currentTime);
-      $.duration.textContent =
-        Utils.formatTime($.audio.duration);
+      $.currentTime.textContent = Utils.formatTime($.audio.currentTime);
+      $.duration.textContent = Utils.formatTime($.audio.duration);
     });
 
     $.progressBar.addEventListener("click", e => {
       if (!$.audio.duration) return;
-
       const rect = e.currentTarget.getBoundingClientRect();
       const pos = (e.clientX - rect.left) / rect.width;
       $.audio.currentTime = pos * $.audio.duration;
@@ -346,16 +348,14 @@ document.addEventListener("DOMContentLoaded", () => {
     );
   }
 
-  /* ─────────────────────────────────────────────
-     INIT
-  ───────────────────────────────────────────── */
+  /* ───────────────────────── INIT ───────────────────────── */
 
   async function init() {
     try {
       await Data.load();
-      Render.appendBatch();        // ⚡ first 13 only
+      Render.appendBatch();
       setupEvents();
-      Persistence.restore();       // stable restore
+      Persistence.restore();
     } catch (err) {
       $.programsList.innerHTML =
         `<p style="color:red;">خطا: ${err.message}</p>`;
