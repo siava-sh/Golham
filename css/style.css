@@ -399,10 +399,3 @@ button,
    
 }
 
-#show-more-btn {
-  display: block !important;
-  min-height: 50px !important;
-  background: red !important; /* to see it clearly */
-  color: white !important;
-  font-size: 1.5rem !important;
-}
