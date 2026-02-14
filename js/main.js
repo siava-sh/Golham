@@ -1,6 +1,14 @@
 document.addEventListener("DOMContentLoaded", () => {
-  // ── Constants ──────────────────────────────────────────────────────
-  const BATCH_SIZE = 13;
+
+  /* ──────────────────────────────
+     CONFIG
+  ────────────────────────────── */
+
+  const CONFIG = {
+    BATCH_SIZE: 13,
+    JSON_URL: "programs.json"
+  };
+
   const SELECTORS = {
     programsList: "#programs-list",
     searchInput: "#search-input",
@@ -16,279 +24,268 @@ document.addEventListener("DOMContentLoaded", () => {
     progressBar: ".progress-bar"
   };
 
-  // ── DOM Elements ───────────────────────────────────────────────────
-  const elements = {
-    programsList: document.querySelector(SELECTORS.programsList),
-    searchInput: document.querySelector(SELECTORS.searchInput),
-    audio: document.querySelector(SELECTORS.audio),
-    playPauseBtn: document.querySelector(SELECTORS.playPauseBtn),
-    prevBtn: document.querySelector(SELECTORS.prevBtn),
-    nextBtn: document.querySelector(SELECTORS.nextBtn),
-    nowPlaying: document.querySelector(SELECTORS.nowPlaying),
-    progressFill: document.querySelector(SELECTORS.progressFill),
-    currentTime: document.querySelector(SELECTORS.currentTime),
-    duration: document.querySelector(SELECTORS.duration),
-    showMoreBtn: document.querySelector(SELECTORS.showMoreBtn),
-    progressBar: document.querySelector(SELECTORS.progressBar)
+  /* ──────────────────────────────
+     DOM CACHE
+  ────────────────────────────── */
+
+  const $ = {};
+  Object.keys(SELECTORS).forEach(key => {
+    $[key] = document.querySelector(SELECTORS[key]);
+  });
+
+  /* ──────────────────────────────
+     STATE
+  ────────────────────────────── */
+
+  const State = {
+    allPrograms: [],
+    currentDataset: [],
+    visibleCount: 0,
+    currentIndex: -1,
+    isPlaying: false
   };
 
-  // ── State ──────────────────────────────────────────────────────────
-  let allPrograms = [];
-  let shuffledPrograms = [];
-  let visibleCount = 0;
-  let currentIndex = -1;
-  let isPlaying = false;
+  /* ──────────────────────────────
+     UTILS
+  ────────────────────────────── */
 
-  // ── Helpers ────────────────────────────────────────────────────────
-  const formatTime = (seconds) => {
-    if (!seconds || isNaN(seconds)) return "00:00";
-    const min = Math.floor(seconds / 60);
-    const sec = Math.floor(seconds % 60);
-    return `${min.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
-  };
+  const Utils = {
 
-  const shuffle = (array) => {
-    const copy = [...array];
-    for (let i = copy.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [copy[i], copy[j]] = [copy[j], copy[i]];
+    shuffle(array) {
+      const copy = [...array];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    },
+
+    formatTime(seconds) {
+      if (!seconds || isNaN(seconds)) return "00:00";
+      const min = Math.floor(seconds / 60);
+      const sec = Math.floor(seconds % 60);
+      return `${min.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
+    },
+
+    normalize(text) {
+      if (!text) return "";
+
+      const persianDigits = "۰۱۲۳۴۵۶۷۸۹";
+      const englishDigits = "0123456789";
+
+      let normalized = text
+        .replace(/ي/g, "ی")
+        .replace(/ك/g, "ک");
+
+      // convert persian digits → english
+      normalized = normalized.replace(/[۰-۹]/g, d =>
+        englishDigits[persianDigits.indexOf(d)]
+      );
+
+      return normalized.toLowerCase().trim();
     }
-    return copy;
+
   };
 
-  // ── Player Logic ───────────────────────────────────────────────────
-  const setupPlayer = () => {
-    elements.audio.addEventListener("timeupdate", () => {
-      if (!elements.audio.duration) return;
-      const progress = (elements.audio.currentTime / elements.audio.duration) * 100;
-      elements.progressFill.style.width = `${progress}%`;
-      elements.currentTime.textContent = formatTime(elements.audio.currentTime);
-      elements.duration.textContent = formatTime(elements.audio.duration);
-    });
+  /* ──────────────────────────────
+     DATA MODULE
+  ────────────────────────────── */
 
-    elements.audio.addEventListener("loadedmetadata", () => {
-      elements.duration.textContent = formatTime(elements.audio.duration);
-    });
+  const Data = {
 
-    elements.audio.addEventListener("play", () => {
-      elements.playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
-      isPlaying = true;
-    });
+    async load() {
+      const res = await fetch(CONFIG.JSON_URL);
+      if (!res.ok) throw new Error("JSON load failed");
+      const programs = await res.json();
 
-    elements.audio.addEventListener("pause", () => {
-      elements.playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
-      isPlaying = false;
-    });
-
-    elements.audio.addEventListener("ended", () => {
-      playRandomNext();
-    });
-
-    elements.progressBar.addEventListener("click", (e) => {
-      if (!elements.audio.duration) return;
-      const rect = e.currentTarget.getBoundingClientRect();
-      const pos = (e.clientX - rect.left) / rect.width;
-      elements.audio.currentTime = pos * elements.audio.duration;
-    });
-  };
-
-  const playTrack = (program, index, autoPlay = true) => {
-    elements.audio.src = program["MP3 URL"];
-    elements.audio.load();
-
-    elements.nowPlaying.textContent = ` در حال پخش  :  ${program["Program Name"] || "بدون نام"}`;
-
-    document.querySelectorAll(".program-item").forEach((el, i) => {
-      el.classList.toggle("playing", i === index);
-    });
-
-    currentIndex = index;
-
-    if (autoPlay) {
-      elements.audio.play().catch(err => {
-        console.error("Playback error:", err);
-        elements.nowPlaying.textContent += " (خطا)";
+      // Precompute normalized search string (performance optimization)
+      programs.forEach(p => {
+        p._search = Utils.normalize(
+          `${p["Program Name"] || ""} ${p["Source"] || ""}`
+        );
       });
+
+      State.allPrograms = programs;
+      State.currentDataset = Utils.shuffle(programs);
+    },
+
+    search(term) {
+      const normalizedTerm = Utils.normalize(term);
+
+      if (!normalizedTerm) {
+        State.currentDataset = Utils.shuffle(State.allPrograms);
+      } else {
+        State.currentDataset = State.allPrograms.filter(p =>
+          p._search.includes(normalizedTerm)
+        );
+      }
+
+      State.visibleCount = 0;
     }
+
   };
 
-  const togglePlayPause = () => {
-    if (currentIndex === -1) {
-      playTrack(shuffledPrograms[0], 0);
-      return;
-    }
-    if (elements.audio.paused || elements.audio.ended) {
-      elements.audio.play();
-    } else {
-      elements.audio.pause();
-    }
-  };
+  /* ──────────────────────────────
+     RENDER MODULE
+  ────────────────────────────── */
 
-  const playRandomNext = () => {
-    if (shuffledPrograms.length === 0) return;
-    let randomIndex = Math.floor(Math.random() * shuffledPrograms.length);
-    while (randomIndex === currentIndex && shuffledPrograms.length > 1) {
-      randomIndex = Math.floor(Math.random() * shuffledPrograms.length);
-    }
-    const program = shuffledPrograms[randomIndex];
-    playTrack(program, randomIndex);
-  };
+  const Render = {
 
-  // ── List & Pagination ──────────────────────────────────────────────
-  const loadInitialBatch = () => {
-    shuffledPrograms = shuffle(allPrograms);
-    visibleCount = 0;
-    elements.programsList.innerHTML = "";
-    appendBatch();
-  };
+    resetList() {
+      $.programsList.innerHTML = "";
+      State.visibleCount = 0;
+    },
 
-  const appendBatch = () => {
-    const start = visibleCount;
-    const end = Math.min(start + BATCH_SIZE, shuffledPrograms.length);
-    const batch = shuffledPrograms.slice(start, end);
+    appendBatch() {
+      const start = State.visibleCount;
+      const end = Math.min(
+        start + CONFIG.BATCH_SIZE,
+        State.currentDataset.length
+      );
 
-    let html = "";
-    batch.forEach((program, batchIndex) => {
-      const index = visibleCount + batchIndex;
-      html += `
-        <div class="program-item" data-index="${index}">
+      const fragment = document.createDocumentFragment();
+
+      for (let i = start; i < end; i++) {
+        const program = State.currentDataset[i];
+
+        const item = document.createElement("div");
+        item.className = "program-item";
+        item.dataset.index = i;
+
+        item.innerHTML = `
           <div class="program-name">${program["Program Name"] || "بدون نام"}</div>
           <div class="action-buttons">
-            <button class="minimal-btn play-this" data-index="${index}" title="پخش">
+            <button class="minimal-btn play-this" data-index="${i}">
               <i class="fas fa-play"></i>
             </button>
-            <a href="${program["MP3 URL"]}" download class="minimal-btn" title="دانلود">
+            <a href="${program["MP3 URL"]}" download class="minimal-btn">
               <i class="fas fa-download"></i>
             </a>
-            <a href="${program["Source"]}" target="_blank" class="minimal-btn" title="منبع">
+            <a href="${program["Source"]}" target="_blank" class="minimal-btn">
               <i class="fas fa-external-link-alt"></i>
             </a>
           </div>
-        </div>
-      `;
-    });
+        `;
 
-    elements.programsList.insertAdjacentHTML("beforeend", html);
-    visibleCount = end;
+        fragment.appendChild(item);
+      }
 
-    if (elements.showMoreBtn) {
-      elements.showMoreBtn.style.display = visibleCount >= shuffledPrograms.length ? "none" : "block";
-    }
-  };
+      $.programsList.appendChild(fragment);
+      State.visibleCount = end;
 
-  // ── Search ─────────────────────────────────────────────────────────
-  const handleSearch = (e) => {
-    const term = e.target.value.trim().toLowerCase();
-
-    if (!term) {
-      loadInitialBatch();
-      return;
-    }
-
-    const filtered = allPrograms.filter(p => {
-      const name = (p["Program Name"] || "").toLowerCase();
-      return name.replace(/ي/g, 'ی').replace(/ك/g, 'ک').includes(term);
-    });
-
-    shuffledPrograms = shuffle(filtered);
-    visibleCount = 0;
-    elements.programsList.innerHTML = "";
-    appendBatch();
-
-    if (elements.showMoreBtn) {
-      elements.showMoreBtn.style.display = "none";
-    }
-  };
-
-  // ── Persistence ────────────────────────────────────────────────────
-  const saveState = () => {
-    if (currentIndex < 0) return;
-    localStorage.setItem("lastIndex", currentIndex);
-    localStorage.setItem("lastTime", elements.audio.currentTime);
-    localStorage.setItem("lastPlaying", isPlaying ? "1" : "0");
-  };
-
-  const restoreState = () => {
-    const idx = localStorage.getItem("lastIndex");
-    const time = localStorage.getItem("lastTime");
-    const playing = localStorage.getItem("lastPlaying") === "1";
-
-    if (idx !== null) {
-      const index = parseInt(idx, 10);
-      if (index >= 0 && index < shuffledPrograms.length) {
-        const program = shuffledPrograms[index];
-        playTrack(program, index, false);
-
-        if (time) {
-          elements.audio.addEventListener("loadedmetadata", () => {
-            elements.audio.currentTime = parseFloat(time);
-          }, { once: true });
-        }
-
-        if (playing) {
-          elements.audio.play().catch(() => {});
-        }
+      // show more visibility
+      if ($.showMoreBtn) {
+        $.showMoreBtn.style.display =
+          State.visibleCount >= State.currentDataset.length
+            ? "none"
+            : "block";
       }
     }
+
   };
 
-  // ── Event Listeners ────────────────────────────────────────────────
-  const setupEvents = () => {
-    elements.playPauseBtn.addEventListener("click", togglePlayPause);
-    elements.nextBtn.addEventListener("click", playRandomNext);
-    elements.prevBtn.addEventListener("click", () => {
-      if (currentIndex > 0) {
-        playTrack(shuffledPrograms[currentIndex - 1], currentIndex - 1);
-      } else if (shuffledPrograms.length > 0) {
-        playTrack(shuffledPrograms[shuffledPrograms.length - 1], shuffledPrograms.length - 1);
-      }
-    });
+  /* ──────────────────────────────
+     PLAYER MODULE
+  ────────────────────────────── */
 
-    elements.programsList.addEventListener("click", (e) => {
-      const btn = e.target.closest(".play-this");
-      if (btn) {
-        const index = parseInt(btn.dataset.index, 10);
-        if (!isNaN(index)) {
-          playTrack(shuffledPrograms[index], index);
-        }
+  const Player = {
+
+    play(index, auto = true) {
+      const program = State.currentDataset[index];
+      if (!program) return;
+
+      $.audio.src = program["MP3 URL"];
+      $.audio.load();
+
+      $.nowPlaying.textContent =
+        `در حال پخش : ${program["Program Name"] || "بدون نام"}`;
+
+      document.querySelectorAll(".program-item").forEach((el, i) => {
+        el.classList.toggle("playing", i === index);
+      });
+
+      State.currentIndex = index;
+
+      if (auto) {
+        $.audio.play().catch(() => {});
+      }
+    },
+
+    toggle() {
+      if (State.currentIndex === -1) {
+        this.play(0);
         return;
       }
 
-      const item = e.target.closest(".program-item");
-      if (item) {
-        const index = parseInt(item.dataset.index, 10);
-        if (!isNaN(index)) {
-          playTrack(shuffledPrograms[index], index);
-        }
-      }
-    });
-
-    if (elements.showMoreBtn) {
-      elements.showMoreBtn.addEventListener("click", appendBatch);
+      $.audio.paused ? $.audio.play() : $.audio.pause();
     }
 
-    elements.searchInput.addEventListener("input", handleSearch);
-
-    elements.audio.addEventListener("pause", saveState);
-    window.addEventListener("beforeunload", saveState);
   };
 
-  // ── Start the app ──────────────────────────────────────────────────
-  const start = () => {
-    setupPlayer();
-    setupEvents();
+  /* ──────────────────────────────
+     EVENTS
+  ────────────────────────────── */
 
-    fetch("programs.json")
-      .then(res => res.ok ? res.json() : Promise.reject("Failed to load JSON"))
-      .then(programs => {
-        allPrograms = programs;
-        loadInitialBatch();
-        restoreState();
-      })
-      .catch(err => {
-        elements.programsList.innerHTML = `<p style="color:#ff4444;">خطا: ${err}</p>`;
-      });
-  };
+  function setupEvents() {
 
-  start();
-})();
+    $.searchInput.addEventListener("input", e => {
+      Data.search(e.target.value);
+      Render.resetList();
+      Render.appendBatch();
+    });
+
+    $.showMoreBtn?.addEventListener("click", () => {
+      Render.appendBatch();
+    });
+
+    $.programsList.addEventListener("click", e => {
+      const btn = e.target.closest(".play-this");
+      if (!btn) return;
+
+      const index = parseInt(btn.dataset.index, 10);
+      if (!isNaN(index)) Player.play(index);
+    });
+
+    $.playPauseBtn.addEventListener("click", () => Player.toggle());
+
+    $.audio.addEventListener("timeupdate", () => {
+      if (!$.audio.duration) return;
+
+      const progress =
+        ($.audio.currentTime / $.audio.duration) * 100;
+
+      $.progressFill.style.width = `${progress}%`;
+      $.currentTime.textContent =
+        Utils.formatTime($.audio.currentTime);
+      $.duration.textContent =
+        Utils.formatTime($.audio.duration);
+    });
+
+    $.progressBar.addEventListener("click", e => {
+      if (!$.audio.duration) return;
+
+      const rect = e.currentTarget.getBoundingClientRect();
+      const pos = (e.clientX - rect.left) / rect.width;
+      $.audio.currentTime = pos * $.audio.duration;
+    });
+
+  }
+
+  /* ──────────────────────────────
+     INIT
+  ────────────────────────────── */
+
+  async function init() {
+    try {
+      await Data.load();
+      Render.appendBatch();   // ⚡ Only first 13 render
+      setupEvents();
+    } catch (err) {
+      $.programsList.innerHTML =
+        `<p style="color:red;">خطا: ${err.message}</p>`;
+    }
+  }
+
+  init();
+
+});
