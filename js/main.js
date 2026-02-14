@@ -1,5 +1,6 @@
 document.addEventListener("DOMContentLoaded", () => {
   // ── Constants ──────────────────────────────────────────────────────
+  const BATCH_SIZE = 13;
   const SELECTORS = {
     programsList: "#programs-list",
     searchInput: "#search-input",
@@ -11,6 +12,7 @@ document.addEventListener("DOMContentLoaded", () => {
     progressFill: "#progress-fill",
     currentTime: "#current-time",
     duration: "#duration",
+    showMoreBtn: "#show-more-btn",
     progressBar: ".progress-bar"
   };
 
@@ -26,12 +28,14 @@ document.addEventListener("DOMContentLoaded", () => {
     progressFill: document.querySelector(SELECTORS.progressFill),
     currentTime: document.querySelector(SELECTORS.currentTime),
     duration: document.querySelector(SELECTORS.duration),
+    showMoreBtn: document.querySelector(SELECTORS.showMoreBtn),
     progressBar: document.querySelector(SELECTORS.progressBar)
   };
 
   // ── State ──────────────────────────────────────────────────────────
   let allPrograms = [];
   let shuffledPrograms = [];
+  let visibleCount = 0;
   let currentIndex = -1;
   let isPlaying = false;
 
@@ -50,13 +54,6 @@ document.addEventListener("DOMContentLoaded", () => {
       [copy[i], copy[j]] = [copy[j], copy[i]];
     }
     return copy;
-  };
-
-  // Normalize Persian/Arabic digits to English
-  const normalizeDigits = (str) => {
-    return str
-      .replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d))
-      .replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d));
   };
 
   // ── Player Logic ───────────────────────────────────────────────────
@@ -99,7 +96,7 @@ document.addEventListener("DOMContentLoaded", () => {
     elements.audio.src = program["MP3 URL"];
     elements.audio.load();
 
-    elements.nowPlaying.textContent = `در حال پخش: ${program["Program Name"] || "بدون نام"}`;
+    elements.nowPlaying.textContent = ` در حال پخش  :  ${program["Program Name"] || "بدون نام"}`;
 
     document.querySelectorAll(".program-item").forEach((el, i) => {
       el.classList.toggle("playing", i === index);
@@ -137,13 +134,22 @@ document.addEventListener("DOMContentLoaded", () => {
     playTrack(program, randomIndex);
   };
 
-  // ── List rendering ─────────────────────────────────────────────────
-  const loadAllPrograms = () => {
+  // ── List & Pagination ──────────────────────────────────────────────
+  const loadInitialBatch = () => {
     shuffledPrograms = shuffle(allPrograms);
+    visibleCount = 0;
     elements.programsList.innerHTML = "";
+    appendBatch();
+  };
+
+  const appendBatch = () => {
+    const start = visibleCount;
+    const end = Math.min(start + BATCH_SIZE, shuffledPrograms.length);
+    const batch = shuffledPrograms.slice(start, end);
 
     let html = "";
-    shuffledPrograms.forEach((program, index) => {
+    batch.forEach((program, batchIndex) => {
+      const index = visibleCount + batchIndex;
       html += `
         <div class="program-item" data-index="${index}">
           <div class="program-name">${program["Program Name"] || "بدون نام"}</div>
@@ -162,29 +168,68 @@ document.addEventListener("DOMContentLoaded", () => {
       `;
     });
 
-    elements.programsList.innerHTML = html;
+    elements.programsList.insertAdjacentHTML("beforeend", html);
+    visibleCount = end;
+
+    if (elements.showMoreBtn) {
+      elements.showMoreBtn.style.display = visibleCount >= shuffledPrograms.length ? "none" : "block";
+    }
   };
 
   // ── Search ─────────────────────────────────────────────────────────
   const handleSearch = (e) => {
-    const termRaw = e.target.value.trim().toLowerCase();
-    if (!termRaw) {
-      loadAllPrograms();
+    const term = e.target.value.trim().toLowerCase();
+
+    if (!term) {
+      loadInitialBatch();
       return;
     }
 
-    // Normalize numbers in search term
-    const term = normalizeDigits(termRaw);
-
     const filtered = allPrograms.filter(p => {
-      let name = (p["Program Name"] || "").toLowerCase();
-      // Normalize name too
-      name = normalizeDigits(name.replace(/ي/g, 'ی').replace(/ك/g, 'ک'));
-      return name.includes(term);
+      const name = (p["Program Name"] || "").toLowerCase();
+      return name.replace(/ي/g, 'ی').replace(/ك/g, 'ک').includes(term);
     });
 
     shuffledPrograms = shuffle(filtered);
-    loadAllPrograms();
+    visibleCount = 0;
+    elements.programsList.innerHTML = "";
+    appendBatch();
+
+    if (elements.showMoreBtn) {
+      elements.showMoreBtn.style.display = "none";
+    }
+  };
+
+  // ── Persistence ────────────────────────────────────────────────────
+  const saveState = () => {
+    if (currentIndex < 0) return;
+    localStorage.setItem("lastIndex", currentIndex);
+    localStorage.setItem("lastTime", elements.audio.currentTime);
+    localStorage.setItem("lastPlaying", isPlaying ? "1" : "0");
+  };
+
+  const restoreState = () => {
+    const idx = localStorage.getItem("lastIndex");
+    const time = localStorage.getItem("lastTime");
+    const playing = localStorage.getItem("lastPlaying") === "1";
+
+    if (idx !== null) {
+      const index = parseInt(idx, 10);
+      if (index >= 0 && index < shuffledPrograms.length) {
+        const program = shuffledPrograms[index];
+        playTrack(program, index, false);
+
+        if (time) {
+          elements.audio.addEventListener("loadedmetadata", () => {
+            elements.audio.currentTime = parseFloat(time);
+          }, { once: true });
+        }
+
+        if (playing) {
+          elements.audio.play().catch(() => {});
+        }
+      }
+    }
   };
 
   // ── Event Listeners ────────────────────────────────────────────────
@@ -208,6 +253,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         return;
       }
+
       const item = e.target.closest(".program-item");
       if (item) {
         const index = parseInt(item.dataset.index, 10);
@@ -217,33 +263,30 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
 
-    elements.searchInput.addEventListener("input", handleSearch);
-  };
-
-  // ── Start ──────────────────────────────────────────────────────────
-  const start = () => {
-    if (els.list) {
-      els.list.innerHTML = '<p style="text-align:center; padding:60px 0;">در حال بارگذاری...</p>';
+    if (elements.showMoreBtn) {
+      elements.showMoreBtn.addEventListener("click", appendBatch);
     }
 
-    fetch("./programs.json")
-      .then(res => {
-        if (!res.ok) throw new Error(`Failed to load: ${res.status} ${res.statusText}`);
-        return res.json();
-      })
+    elements.searchInput.addEventListener("input", handleSearch);
+
+    elements.audio.addEventListener("pause", saveState);
+    window.addEventListener("beforeunload", saveState);
+  };
+
+  // ── Start the app ──────────────────────────────────────────────────
+  const start = () => {
+    setupPlayer();
+    setupEvents();
+
+    fetch("programs.json")
+      .then(res => res.ok ? res.json() : Promise.reject("Failed to load JSON"))
       .then(programs => {
         allPrograms = programs;
-        setupPlayer();
-        setupEvents();
-        loadAllPrograms();
+        loadInitialBatch();
+        restoreState();
       })
       .catch(err => {
-        if (els.list) {
-          els.list.innerHTML = `<p style="color:#ff4444; text-align:center; padding:80px 0;">
-            خطا در بارگذاری برنامه‌ها<br>${err.message}
-          </p>`;
-        }
-        console.error("Fetch error:", err);
+        elements.programsList.innerHTML = `<p style="color:#ff4444;">خطا: ${err}</p>`;
       });
   };
 
