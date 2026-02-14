@@ -1,40 +1,32 @@
 document.addEventListener("DOMContentLoaded", () => {
-  // ── Safe DOM query helper ─────────────────────────────────────────
-  const $ = (sel) => document.querySelector(sel);
-  const $$ = (sel) => document.querySelectorAll(sel);
-
+  // ── DOM elements ───────────────────────────────────────────────────
   const els = {
-    list: $("#programs-list"),
-    search: $("#search-input"),
-    audio: $("#audio-player"),
-    playPause: $("#play-pause-btn"),
-    prev: $("#prev-btn"),
-    next: $("#next-btn"),
-    nowPlaying: $(".now-playing"),
-    progressFill: $("#progress-fill"),
-    currentTime: $("#current-time"),
-    duration: $("#duration"),
-    showMore: $("#show-more-btn"),
-    progressBar: $(".progress-bar")
+    list: document.querySelector("#programs-list"),
+    search: document.querySelector("#search-input"),
+    audio: document.querySelector("#audio-player"),
+    playPause: document.querySelector("#play-pause-btn"),
+    prev: document.querySelector("#prev-btn"),
+    next: document.querySelector("#next-btn"),
+    nowPlaying: document.querySelector(".now-playing"),
+    progressFill: document.querySelector("#progress-fill"),
+    currentTime: document.querySelector("#current-time"),
+    duration: document.querySelector("#duration"),
+    progressBar: document.querySelector(".progress-bar")
   };
 
-  // Guard: if critical elements missing → show error early
+  // Guard: critical elements missing?
   if (!els.list || !els.audio) {
     if (els.list) {
-      els.list.innerHTML = '<p style="color:#ff4444; padding:60px 0; text-align:center;">خطا: عناصر اصلی صفحه پیدا نشدند</p>';
+      els.list.innerHTML = '<p style="color:#ff4444; padding:100px 0; text-align:center;">خطا: عناصر اصلی پیدا نشدند</p>';
     }
-    console.error("Critical DOM elements missing");
     return;
   }
 
   // ── State ──────────────────────────────────────────────────────────
   let allPrograms = [];
-  let shuffledPrograms = [];
-  let visibleCount = 0;
+  let filteredPrograms = [];
   let currentIndex = -1;
   let isPlaying = false;
-
-  const BATCH_SIZE = 13;
 
   // ── Helpers ────────────────────────────────────────────────────────
   const formatTime = (s) => {
@@ -52,14 +44,14 @@ document.addEventListener("DOMContentLoaded", () => {
     return a;
   };
 
-  const normalizeNumber = (str) =>
-    str.replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d))
-       .replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d));
+  // Normalize Persian/Arabic → English digits
+  const normalizeDigits = (str) =>
+    str
+      .replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d))
+      .replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d));
 
   // ── Player ─────────────────────────────────────────────────────────
   const initPlayer = () => {
-    if (!els.audio) return;
-
     els.audio.addEventListener("timeupdate", () => {
       if (!els.audio.duration) return;
       const pct = (els.audio.currentTime / els.audio.duration) * 100;
@@ -95,7 +87,7 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   const play = (program, idx, auto = true) => {
-    if (!els.audio || !program) return;
+    if (!program || !els.audio) return;
 
     els.audio.src = program["MP3 URL"];
     els.audio.load();
@@ -117,8 +109,8 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   const togglePlay = () => {
-    if (currentIndex === -1 && shuffledPrograms.length > 0) {
-      play(shuffledPrograms[0], 0);
+    if (currentIndex === -1 && filteredPrograms.length > 0) {
+      play(filteredPrograms[0], 0);
       return;
     }
     if (els.audio.paused || els.audio.ended) {
@@ -129,67 +121,21 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   const playRandomNext = () => {
-    if (shuffledPrograms.length < 2) return;
-    let idx = Math.floor(Math.random() * shuffledPrograms.length);
+    if (filteredPrograms.length < 2) return;
+    let idx = Math.floor(Math.random() * filteredPrograms.length);
     while (idx === currentIndex) {
-      idx = Math.floor(Math.random() * shuffledPrograms.length);
+      idx = Math.floor(Math.random() * filteredPrograms.length);
     }
-    play(shuffledPrograms[idx], idx);
+    play(filteredPrograms[idx], idx);
   };
 
-  // ── List & Show More ───────────────────────────────────────────────
-  let loadStarted = false;
-
-  const loadFirstBatch = () => {
-    if (loadStarted) return;
-    loadStarted = true;
-
+  // ── List rendering ─────────────────────────────────────────────────
+  const renderAll = () => {
     if (!els.list) return;
 
-    // Immediate feedback
-    els.list.innerHTML = `
-      <div style="text-align:center; padding:80px 0; color:#00f0ff;">
-        <i class="fas fa-spinner fa-spin fa-2x"></i><br><br>
-        بارگذاری برنامه‌ها...
-      </div>
-    `;
+    els.list.innerHTML = ""; // clear
 
-    fetch("./programs.json")
-      .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
-      .then(data => {
-        allPrograms = Array.isArray(data) ? data : [];
-        if (allPrograms.length === 0) {
-          els.list.innerHTML = '<p style="color:#ff9999; text-align:center; padding:60px 0;">هیچ برنامه‌ای یافت نشد</p>';
-          return;
-        }
-
-        shuffledPrograms = shuffle(allPrograms);
-        visibleCount = 0;
-        els.list.innerHTML = "";
-        appendBatch();
-      })
-      .catch(err => {
-        els.list.innerHTML = `
-          <p style="color:#ff4444; text-align:center; padding:60px 0;">
-            خطا در بارگذاری: ${err.message || "فایل پیدا نشد"}<br>
-            لطفاً صفحه را رفرش کنید یا بعداً امتحان کنید.
-          </p>
-        `;
-        console.error("Load error:", err);
-      });
-  };
-
-  const appendBatch = () => {
-    if (!els.list || visibleCount >= shuffledPrograms.length) return;
-
-    const start = visibleCount;
-    const end = Math.min(start + BATCH_SIZE, shuffledPrograms.length);
-    const batch = shuffledPrograms.slice(start, end);
-
-    const frag = document.createDocumentFragment();
-
-    batch.forEach((p, i) => {
-      const idx = visibleCount + i;
+    filteredPrograms.forEach((p, idx) => {
       const item = document.createElement("div");
       item.className = "program-item";
       item.dataset.index = idx;
@@ -207,15 +153,8 @@ document.addEventListener("DOMContentLoaded", () => {
           </a>
         </div>
       `;
-      frag.appendChild(item);
+      els.list.appendChild(item);
     });
-
-    els.list.appendChild(frag);
-    visibleCount = end;
-
-    if (els.showMore) {
-      els.showMore.style.display = visibleCount < shuffledPrograms.length ? "block" : "none";
-    }
   };
 
   // ── Search ─────────────────────────────────────────────────────────
@@ -223,25 +162,22 @@ document.addEventListener("DOMContentLoaded", () => {
   const onSearch = (e) => {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => {
-      const term = normalizeNumber(e.target.value.trim().toLowerCase());
+      const term = normalizeDigits(e.target.value.trim().toLowerCase());
       if (!term) {
-        loadFirstBatch();
+        filteredPrograms = shuffle(allPrograms);
+        renderAll();
         return;
       }
 
-      const filtered = allPrograms.filter(p => {
+      filteredPrograms = allPrograms.filter(p => {
         let n = (p["Program Name"] || "").toLowerCase();
-        n = normalizeNumber(n.replace(/ي/g, 'ی').replace(/ك/g, 'ک'));
+        n = normalizeDigits(n.replace(/ي/g, 'ی').replace(/ك/g, 'ک'));
         return n.includes(term);
       });
 
-      shuffledPrograms = shuffle(filtered);
-      visibleCount = 0;
-      els.list.innerHTML = "";
-      appendBatch();
-
-      if (els.showMore) els.showMore.style.display = "none";
-    }, 250);
+      filteredPrograms = shuffle(filteredPrograms);
+      renderAll();
+    }, 280);
   };
 
   // ── Events ─────────────────────────────────────────────────────────
@@ -249,58 +185,49 @@ document.addEventListener("DOMContentLoaded", () => {
     if (els.playPause) els.playPause.onclick = togglePlay;
     if (els.next) els.next.onclick = playRandomNext;
     if (els.prev) els.prev.onclick = () => {
-      const len = shuffledPrograms.length;
+      const len = filteredPrograms.length;
       if (len === 0) return;
       const i = currentIndex > 0 ? currentIndex - 1 : len - 1;
-      play(shuffledPrograms[i], i);
+      play(filteredPrograms[i], i);
     };
 
     if (els.list) {
       els.list.onclick = (e) => {
-        const b = e.target.closest(".play-this");
-        if (b) {
-          const i = parseInt(b.dataset.index, 10);
-          if (!isNaN(i)) play(shuffledPrograms[i], i);
+        const btn = e.target.closest(".play-this");
+        if (btn) {
+          const i = parseInt(btn.dataset.index, 10);
+          if (!isNaN(i)) play(filteredPrograms[i], i);
           return;
         }
         const row = e.target.closest(".program-item");
         if (row) {
           const i = parseInt(row.dataset.index, 10);
-          if (!isNaN(i)) play(shuffledPrograms[i], i);
+          if (!isNaN(i)) play(filteredPrograms[i], i);
         }
       };
     }
 
-    if (els.showMore) els.showMore.onclick = appendBatch;
     if (els.search) els.search.oninput = onSearch;
   };
 
-  // ── Go ─────────────────────────────────────────────────────────────
-  if (els.list) {
-    els.list.innerHTML = `
-      <div style="text-align:center; padding:100px 0; color:#00aaff;">
-        <i class="fas fa-spinner fa-spin fa-2x"></i><br><br>
-        بارگذاری آرشیو گلها...
-      </div>
-    `;
-  }
-
+  // ── Start ──────────────────────────────────────────────────────────
   fetch("./programs.json")
-    .then(r => r.ok ? r.json() : Promise.reject(r.status + " " + r.statusText))
+    .then(r => r.ok ? r.json() : Promise.reject("بارگذاری ناموفق"))
     .then(data => {
       allPrograms = Array.isArray(data) ? data : [];
+      filteredPrograms = shuffle(allPrograms);
       bind();
       setupPlayer();
-      loadFirstBatch();
+      renderAll();
     })
     .catch(e => {
       if (els.list) {
         els.list.innerHTML = `
-          <p style="color:#ff5555; text-align:center; padding:100px 20px; font-size:1.2rem;">
+          <p style="color:#ff5555; text-align:center; padding:100px 20px;">
             مشکل در بارگذاری داده‌ها<br>${e.message}
           </p>
         `;
       }
-      console.error("Startup error:", e);
+      console.error("Fetch error:", e);
     });
 });
